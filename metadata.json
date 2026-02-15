@@ -1,0 +1,5 @@
+{
+  "name": "Emostructure: Emotion Wireframe Generator",
+  "description": "A sophisticated tool that maps emotions onto a 2D Valence-Arousal axis and generates unique parametric wireframe shapes. Negative emotions create spiky, sharp forms, while positive emotions result in rounded, organic structures. Active states increase geometric complexity, and passive states simplify them. Includes real-time Gemini-powered emotion classification and SVG export capabilities.",
+  "requestFramePermissions": []
+}
