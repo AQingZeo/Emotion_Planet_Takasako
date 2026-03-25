@@ -1,22 +1,34 @@
 # Emotion Planet
 
-Map emotional text to a **seeded trigonometric polynomial**, then visualize it as a 2D axis, a 3D heat surface, and a displaced wireframe sphere.
+Public-installation prototype: classify free-text emotion (OpenAI), paint on pre-built **blob + terrain** GLB pairs, capture a transparent **PNG sprite** for a shared **matrix** view.
 
 ## Routes
 
-- **`/`** — Controller: text input, valence–arousal axis, 3D preview (heat + wireframe). Link to open full-screen display.
-- **`/display`** — Full-screen 3D wireframe (e.g. second monitor). Syncs via `BroadcastChannel` and persists last state in `localStorage`.
+- **`/`** — Input: describe your feeling → AI picks an archetype (`emotion_a` / `emotion_b` / `emotion_c` for MVP) + valence/activation → paint on the 3D models → **Confirm & send** (broadcast + local storage).
+- **`/matrix`** — Matrix display: billboard sprites on a **valence (X) × activation (Y)** plane; click a sprite for detail (lazy-loaded GLB + saved paint + text). Open this on a second screen/tab; **BroadcastChannel** keeps it in sync with new submissions.
 
 ## Setup
 
 1. `npm install`
-2. Create `.env.local` with `GEMINI_API_KEY=your_key` (optional; used for AI emotion classification).
-3. `npm run dev` — open http://localhost:3000
+2. Create `.env.local` with `VITE_OPENAI_API_KEY=sk-...` (or `OPENAI_API_KEY` — Vite injects it via `vite.config.ts`).
+3. Optional — skip the API while testing paint/matrix: set `VITE_USE_MOCK_CLASSIFY=true` in `.env.local` and **restart** `npm run dev`, **or** open `http://localhost:3000/?mock=1` (no env needed). Edit the fixed result in `src/ai/mockClassification.ts`.
+4. `npm run dev` — http://localhost:3000
 
-## Architecture (plan)
+Submissions are **JPEG-compressed** before `localStorage` save so the matrix feed does not hit browser quota. Open **`/matrix` in another tab** so it receives `storage` updates after send, or reload `/matrix`.
 
-- **Text → AI** → `{ valence, arousal, label, confidence }` (JSON only; fallback `{0,0}` on failure).
-- **Seed** = `hash32(normalizeUnicode(text))` (deterministic).
-- **Map** = tileable 2D trig polynomial \(H(u,v)\) with coefficients from seeded PRNG; **arousal** controls number of active Fourier modes (4–60); **valence** controls spectral tilt (round ↔ spiky).
-- **Outputs:** (1) Axis view (2D canvas), (2) 3D heat surface (plane, 256×128 segments), (3) 3D wireframe (icosahedron displaced by map; optional UV scroll).
-- Map is fixed per input; only UV scroll / camera motion animate.
+## Assets (MVP)
+
+Place GLBs under `public/assets/emotions/`:
+
+- `emotion_a_adoration/*` — `blob.glb`, `terrain.glb`
+- `emotion_b_excitement/*`
+- `emotion_c_awe/*`
+
+See `src/config/emotions.ts` for IDs and paths.
+
+## Architecture
+
+- **AI** — `gpt-4o-mini` JSON: `emotion_id`, `emotion_label`, `confidence`, `valence`, `activation`, `reasoning_short`.
+- **Paint** — separate canvas textures per blob/terrain; UV raycast painting.
+- **Storage** — `localStorage` submission list (`src/storage/submissions.ts`); swap for a backend later.
+- **Matrix** — lightweight sprites from PNG data URLs; full 3D only in the detail popup.

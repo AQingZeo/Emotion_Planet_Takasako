@@ -17,6 +17,7 @@ export interface ResponseLogEntry {
 
 function loadLog(): ResponseLogEntry[] {
   try {
+    if (typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
@@ -28,6 +29,7 @@ function loadLog(): ResponseLogEntry[] {
 
 function saveLog(entries: ResponseLogEntry[]): void {
   try {
+    if (typeof localStorage === 'undefined') return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries, null, 0));
   } catch (_) {}
 }

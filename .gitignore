@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .cursor/*
+
+# Project-local submission mirror (dev API)
+data/submissions.json
+data/*.db
+.local_doc/*
