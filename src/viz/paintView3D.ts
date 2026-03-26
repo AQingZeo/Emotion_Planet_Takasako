@@ -42,8 +42,11 @@ export interface PaintView3DHandle {
   getTerrainPaintDataUrl(): string;
   setBrushRadius(radiusPx: number): void;
   setBrushColor(hex: string): void;
+  setBaseColor(hex: string): void;
   undo(): void;
   clearPaint(): void;
+  /** Remove blob/terrain models and paint layers (empty canvas until next load). */
+  clearScene(): void;
   resize(): void;
   dispose(): void;
   getScene(): THREE.Scene;
@@ -325,6 +328,7 @@ export function createPaintView3D(
     blobMeshes = [];
     terrainMeshes = [];
     lastStroke = null;
+    paintHistory.length = 0;
   }
 
   async function loadEmotionArchetype(emotionId: string): Promise<void> {
@@ -404,8 +408,12 @@ export function createPaintView3D(
       terrainPaint?.setBrushSize(r);
     },
     setBrushColor(hex: string): void {
-      blobPaint?.setColor(hex);
-      terrainPaint?.setColor(hex);
+      blobPaint?.setBrushColor(hex);
+      terrainPaint?.setBrushColor(hex);
+    },
+    setBaseColor(hex: string): void {
+      blobPaint?.setBaseColor(hex);
+      terrainPaint?.setBaseColor(hex);
     },
     undo(): void {
       const last = paintHistory.pop();
@@ -416,6 +424,10 @@ export function createPaintView3D(
       paintHistory.length = 0;
       blobPaint?.clearToNeutral();
       terrainPaint?.clearToNeutral();
+    },
+    clearScene(): void {
+      clearSceneModels();
+      resize();
     },
     resize,
     dispose(): void {

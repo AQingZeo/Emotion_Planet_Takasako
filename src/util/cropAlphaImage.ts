@@ -190,7 +190,7 @@ function finalizeOpaqueEdges(d: Uint8ClampedArray): void {
 }
 
 function applySpritePixelPipelineToCanvas(canvas: HTMLCanvasElement): void {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
   const w = canvas.width;
   const h = canvas.height;
@@ -203,7 +203,7 @@ function applySpritePixelPipelineToCanvas(canvas: HTMLCanvasElement): void {
 }
 
 function sanitizeSpriteAlphaOnCanvas(canvas: HTMLCanvasElement): void {
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return;
   const w = canvas.width;
   const h = canvas.height;
@@ -225,7 +225,7 @@ export async function sanitizeSpriteAlpha(dataUrl: string): Promise<string> {
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
           resolve(dataUrl);
           return;
@@ -261,7 +261,7 @@ export async function cropDataUrlToOpaqueBounds(dataUrl: string): Promise<string
         const canvas = document.createElement('canvas');
         canvas.width = w;
         canvas.height = h;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
           resolve(dataUrl);
           return;
@@ -294,7 +294,7 @@ export async function cropDataUrlToOpaqueBounds(dataUrl: string): Promise<string
         const out = document.createElement('canvas');
         out.width = cw;
         out.height = ch;
-        const octx = out.getContext('2d');
+        const octx = out.getContext('2d', { willReadFrequently: true });
         if (!octx) {
           resolve(dataUrl);
           return;

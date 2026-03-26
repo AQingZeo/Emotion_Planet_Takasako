@@ -22,7 +22,10 @@ export class PaintSystem {
   private undoStack: ImageData[] = [];
   private brushRadiusPx = 28;
   private brushRadiusScale = 1;
-  private color = '#cc5533';
+  /** Stroke color (radial brush stamp). */
+  private brushColor = '#5F9569';
+  /** Full-layer fill used by clearToNeutral / clear paint. */
+  private baseColor = '#5F9569';
   private brushAlpha = 0.65;
 
   constructor(options?: PaintSystemOptions) {
@@ -31,7 +34,7 @@ export class PaintSystem {
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.size;
     this.canvas.height = this.size;
-    const ctx = this.canvas.getContext('2d');
+    const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('PaintSystem: 2d context unavailable');
     this.ctx = ctx;
     this.texture = new THREE.CanvasTexture(this.canvas);
@@ -51,12 +54,20 @@ export class PaintSystem {
     return this.brushRadiusPx;
   }
 
-  setColor(hex: string): void {
-    this.color = hex;
+  setBrushColor(hex: string): void {
+    this.brushColor = hex;
   }
 
-  getColor(): string {
-    return this.color;
+  getBrushColor(): string {
+    return this.brushColor;
+  }
+
+  setBaseColor(hex: string): void {
+    this.baseColor = hex;
+  }
+
+  getBaseColor(): string {
+    return this.baseColor;
   }
 
   setBrushAlpha(a: number): void {
@@ -102,8 +113,8 @@ export class PaintSystem {
     const x = u * this.size;
     const y = (1 - v) * this.size;
     const g = this.ctx.createRadialGradient(x, y, 0, x, y, rPx);
-    g.addColorStop(0, this.withAlpha(this.color, this.brushAlpha));
-    g.addColorStop(1, this.withAlpha(this.color, 0));
+    g.addColorStop(0, this.withAlpha(this.brushColor, this.brushAlpha));
+    g.addColorStop(1, this.withAlpha(this.brushColor, 0));
     this.ctx.save();
     this.ctx.globalCompositeOperation = 'source-over';
     this.ctx.fillStyle = g;
@@ -142,7 +153,7 @@ export class PaintSystem {
 
   clearToNeutral(): void {
     this.undoStack = [];
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = this.baseColor;
     this.ctx.globalAlpha = 1;
     this.ctx.fillRect(0, 0, this.size, this.size);
     this.texture.needsUpdate = true;

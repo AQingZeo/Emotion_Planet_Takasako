@@ -19,12 +19,18 @@ export const MOCK_CLASSIFICATION: AIClassificationResult = {
 };
 
 /**
- * Must read `import.meta.env.VITE_*` with a static property access so Vite inlines it.
- * Do not use `(import.meta as any).env?.KEY` — the flag stays undefined at runtime.
+ * Vite inlines `import.meta.env.VITE_*` in the client bundle. On Node (Express `tsx`),
+ * `import.meta.env` may be missing — guard before the static `VITE_*` read.
  */
 export function isMockClassifyEnabled(): boolean {
   if (typeof process !== 'undefined' && process.env?.VITE_USE_MOCK_CLASSIFY === 'true') return true;
-  if (import.meta.env.VITE_USE_MOCK_CLASSIFY === 'true') return true;
+  if (
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.VITE_USE_MOCK_CLASSIFY === 'true'
+  ) {
+    return true;
+  }
   if (typeof window !== 'undefined') {
     try {
       if (new URLSearchParams(window.location.search).get('mock') === '1') return true;

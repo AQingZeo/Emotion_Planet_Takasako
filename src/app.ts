@@ -6,11 +6,6 @@ import { fetchClassify } from './api/backend';
 import { roundTo2 } from './ai/axisAgent';
 import type { AIClassificationResult, SubmissionRecord } from './data/types';
 import { saveSubmission, getActiveEntries, getEntry } from './storage/submissions';
-import {
-  applySubmissionsImport,
-  downloadSubmissionsBackup,
-  readSubmissionsBackupFromFile,
-} from './storage/submissionBackup';
 import { connectSubmissionsSocket } from './realtime/submissionsWs';
 import { createPaintView3D } from './viz/paintView3D';
 import { captureMatrixSprite } from './viz/pngCapture';
@@ -25,6 +20,29 @@ function newEntryId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `entry_${Date.now()}`;
 }
 
+/** Empty log shell (English labels); values filled after Analyze. */
+const LOG_TEMPLATE_EMPTY = [
+  'Label:',
+  'Archetype:',
+  'Valence:',
+  'Activation:',
+  'Timestamp:',
+  'Confidence:',
+].join('\n');
+
+function formatAiLog(ai: AIClassificationResult, timestampIso: string): string {
+  const lines = [
+    `Label: ${ai.emotion_label}`,
+    `Archetype: ${ai.emotion_id}`,
+    `Valence: ${ai.valence.toFixed(2)}`,
+    `Activation: ${ai.activation.toFixed(2)}`,
+    `Timestamp: ${timestampIso}`,
+    `Confidence: ${ai.confidence.toFixed(2)}`,
+  ];
+  if (ai.reasoning_short) lines.push(`Reasoning: ${ai.reasoning_short}`);
+  return lines.join('\n');
+}
+
 function runInput(): void {
   const root = document.getElementById('root');
   if (!root) return;
@@ -33,93 +51,171 @@ function runInput(): void {
 
   const wrap = document.createElement('div');
   wrap.style.cssText =
-    'display:flex;flex-direction:row;width:100vw;height:100vh;min-height:480px;font-family:system-ui,sans-serif;background:#fafaf9;';
+    'position:relative;display:flex;flex-direction:row;width:100vw;height:100vh;min-height:480px;font-family:var(--font-display);background:#fafaf9;';
   root.appendChild(wrap);
 
   const left = document.createElement('div');
   left.style.cssText =
-    'flex:0 0 38%;max-width:420px;display:flex;flex-direction:column;padding:20px 16px;gap:12px;border-right:1px solid #e7e5e4;box-sizing:border-box;';
+    'flex:0 0 33%;min-width:300px;max-width:460px;display:flex;flex-direction:column;min-height:0;padding:20px 18px;gap:14px;border-right:1px solid #e7e5e4;box-sizing:border-box;';
 
-  const title = document.createElement('h1');
-  title.style.cssText = 'font-size:18px;margin:0;color:#1c1917;font-weight:700;';
-  title.textContent = 'How are you feeling?';
-  left.appendChild(title);
+  const titleBlock = document.createElement('div');
+  titleBlock.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+  const titleJa = document.createElement('div');
+  titleJa.style.cssText =
+    'font-size:40px;font-weight:400;line-height:1.3;color:#1c1917;margin:0;font-family:var(--font-title);';
+  titleJa.textContent = '今、調子はどう。';
+  const titleEn = document.createElement('div');
+  titleEn.style.cssText =
+    'font-size:52px;font-weight:400;line-height:1.2;color:#1c1917;margin:0;font-family:var(--font-title);';
+  titleEn.textContent = 'How are you feeling?';
+  titleBlock.appendChild(titleJa);
+  titleBlock.appendChild(titleEn);
+  left.appendChild(titleBlock);
 
   const input = document.createElement('textarea');
-  input.rows = 4;
-  input.placeholder = 'Describe your emotion (any language)…';
+  input.rows = 9;
+  input.placeholder = 'Input here';
   input.style.cssText =
-    'width:100%;padding:12px 14px;border:1px solid #e7e5e4;border-radius:10px;font-size:14px;resize:vertical;box-sizing:border-box;';
+    'width:100%;min-height:220px;flex:0 1 auto;padding:12px 14px;border:1px solid #e7e5e4;border-radius:10px;font-size:14px;resize:vertical;box-sizing:border-box;font-family:var(--font-display);';
 
   const nameLabel = document.createElement('label');
-  nameLabel.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:12px;color:#57534e;';
+  nameLabel.style.cssText =
+    'display:flex;flex-direction:column;gap:6px;font-size:12px;color:#57534e;font-family:var(--font-secondary);';
   const nameCaption = document.createElement('span');
-  nameCaption.textContent = 'Name (optional)';
+  nameCaption.innerHTML =
+    '<span style="font-family:var(--font-display)">表示名</span> <span style="opacity:0.85">name</span>';
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
-  nameInput.placeholder = 'N/A';
+  nameInput.placeholder = 'Optional';
   nameInput.autocomplete = 'name';
   nameInput.style.cssText =
-    'width:100%;padding:8px 12px;border:1px solid #e7e5e4;border-radius:10px;font-size:13px;box-sizing:border-box;';
+    'width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:10px;font-size:13px;box-sizing:border-box;font-family:var(--font-display);';
 
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;';
-
-  const submitBtn = document.createElement('button');
-  submitBtn.type = 'button';
-  submitBtn.textContent = 'Classify';
-  submitBtn.style.cssText =
-    'padding:10px 18px;background:#1c1917;color:#fafaf9;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px;';
-
-  const openMatrixBtn = document.createElement('button');
-  openMatrixBtn.type = 'button';
-  openMatrixBtn.textContent = 'Open matrix';
-  openMatrixBtn.style.cssText =
-    'padding:10px 14px;background:#fff;color:#1c1917;border:1px solid #d6d3d1;border-radius:10px;cursor:pointer;font-size:13px;';
-  openMatrixBtn.addEventListener('click', () => {
-    window.open('/matrix', '_blank', 'noopener');
-  });
-
-  row.appendChild(submitBtn);
-  row.appendChild(openMatrixBtn);
   nameLabel.appendChild(nameCaption);
   nameLabel.appendChild(nameInput);
   left.appendChild(input);
   left.appendChild(nameLabel);
-  left.appendChild(row);
 
-  const status = document.createElement('div');
-  status.style.cssText = 'font-size:13px;color:#57534e;min-height:1.5em;';
-  left.appendChild(status);
+  const leftSpacer = document.createElement('div');
+  leftSpacer.style.cssText = 'flex:1;min-height:12px;';
+  left.appendChild(leftSpacer);
 
-  const resultBox = document.createElement('div');
-  resultBox.style.cssText =
-    'font-size:12px;color:#44403c;background:#f5f5f4;padding:10px 12px;border-radius:10px;border:1px solid #e7e5e4;min-height:64px;white-space:pre-wrap;';
-  resultBox.textContent = 'Classify text to load a blob and terrain to paint.';
-  left.appendChild(resultBox);
+  const submitBtn = document.createElement('button');
+  submitBtn.type = 'button';
+  submitBtn.innerHTML =
+    '<span style="font-family:var(--font-display)">分析する</span> <span style="opacity:0.9">Analyze</span>';
+  submitBtn.style.cssText =
+    'width:100%;padding:14px 18px;background:#1c1917;color:#fafaf9;border:none;border-radius:14px;font-weight:600;cursor:pointer;font-size:15px;font-family:var(--font-display);';
 
-  const paintControls = document.createElement('div');
-  paintControls.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-top:8px;';
-  paintControls.innerHTML = [
-    '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#44403c;">Brush size',
-    '<input type="range" id="brush-size" min="16" max="120" value="52" style="flex:1;" /></label>',
-    '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#44403c;">Color ',
-    '<input type="color" id="brush-color" value="#cc5533" /></label>',
-    '<div style="display:flex;gap:8px;flex-wrap:wrap;">',
-    '<button type="button" id="btn-undo" style="padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;">Undo</button>',
-    '<button type="button" id="btn-clear" style="padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;">Clear paint</button>',
-    '</div>',
-    '<p style="margin:0;font-size:11px;color:#a8a29e;line-height:1.35;">Tip: <strong>wheel</strong> zooms · <strong>middle-drag</strong> rotates the view · <strong>left-drag</strong> paints</p>',
-    '<button type="button" id="btn-send" disabled style="padding:12px 16px;font-size:14px;font-weight:600;border:none;border-radius:10px;background:#78716c;color:#fff;cursor:not-allowed;">Confirm & send</button>',
-  ].join('');
-  left.appendChild(paintControls);
+  const btnSend = document.createElement('button');
+  btnSend.type = 'button';
+  btnSend.id = 'btn-send';
+  btnSend.disabled = true;
+  btnSend.innerHTML =
+    '<span style="font-family:var(--font-display)">送信する</span> <span style="opacity:0.9">Send</span>';
+  btnSend.style.cssText =
+    'width:100%;padding:14px 18px;font-size:15px;font-weight:600;border:none;border-radius:14px;background:#78716c;color:#fff;cursor:not-allowed;font-family:var(--font-display);';
+
+  const leftActions = document.createElement('div');
+  leftActions.style.cssText = 'display:flex;flex-direction:column;gap:10px;width:100%;';
+  leftActions.appendChild(submitBtn);
+  leftActions.appendChild(btnSend);
+  left.appendChild(leftActions);
+
+  const BASIC_COLORS = ['#5F9569', '#EAC787', '#E86E7F', '#7BB7B7', '#3F9490'] as const;
 
   const right = document.createElement('div');
-  right.style.cssText = 'flex:1;position:relative;min-width:0;min-height:0;background:#e7e5e4;';
+  right.style.cssText =
+    'flex:1;position:relative;min-width:0;min-height:0;padding-bottom:96px;box-sizing:border-box;background:#e7e5e4;';
   wrap.appendChild(left);
   wrap.appendChild(right);
 
+  const statusBanner = document.createElement('div');
+  statusBanner.style.cssText =
+    'position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:48;max-width:min(520px,calc(100% - 32px));min-height:2.5em;padding:10px 20px;font-size:13px;font-family:var(--font-secondary);color:#44403c;background:rgba(255,255,255,0.94);border:1px solid #e7e5e4;border-radius:12px;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,0.08);pointer-events:none;box-sizing:border-box;line-height:1.45;';
+  statusBanner.textContent = 'Ready.';
+  right.appendChild(statusBanner);
+
   const paint = createPaintView3D(right);
+
+  const resultBox = document.createElement('div');
+  resultBox.style.cssText =
+    'position:absolute;right:16px;bottom:108px;z-index:50;pointer-events:none;max-width:min(380px,42vw);min-height:64px;font-size:10px;line-height:1.4;font-family:var(--font-secondary);color:#44403c;background:#f5f5f4;padding:10px 12px;border-radius:12px;border:1px solid #e7e5e4;white-space:pre-wrap;box-shadow:0 14px 30px rgba(0,0,0,0.10);box-sizing:border-box;';
+  resultBox.textContent = LOG_TEMPLATE_EMPTY;
+  right.appendChild(resultBox);
+
+  const paletteBar = document.createElement('div');
+  paletteBar.style.cssText =
+    'position:absolute;bottom:0;left:0;right:0;z-index:45;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:12px 16px;padding:12px 14px;background:rgba(250,250,249,0.97);backdrop-filter:blur(8px);border-top:1px solid #d6d3d1;box-sizing:border-box;pointer-events:auto;';
+
+  const undoCol = document.createElement('div');
+  undoCol.style.cssText = 'display:flex;flex-direction:column;gap:5px;flex-shrink:0;';
+  const btnUndo = document.createElement('button');
+  btnUndo.type = 'button';
+  btnUndo.id = 'btn-undo';
+  btnUndo.textContent = 'Undo';
+  btnUndo.style.cssText =
+    'padding:5px 12px;font-size:11px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;font-family:var(--font-display);min-width:72px;';
+  const btnClear = document.createElement('button');
+  btnClear.type = 'button';
+  btnClear.id = 'btn-clear';
+  btnClear.textContent = 'Clear';
+  btnClear.style.cssText =
+    'padding:5px 12px;font-size:11px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;font-family:var(--font-display);min-width:72px;';
+  undoCol.appendChild(btnUndo);
+  undoCol.appendChild(btnClear);
+  paletteBar.appendChild(undoCol);
+
+  const brushSizeWrap = document.createElement('label');
+  brushSizeWrap.style.cssText =
+    'display:flex;flex-direction:column;gap:4px;min-width:120px;max-width:160px;font-size:11px;color:#44403c;';
+  brushSizeWrap.innerHTML =
+    '<span><span style="font-family:var(--font-display)">ブラシサイズ</span> <span style="font-family:var(--font-secondary);opacity:0.85">brush size</span></span>';
+  const brushSize = document.createElement('input');
+  brushSize.type = 'range';
+  brushSize.id = 'brush-size';
+  brushSize.min = '20';
+  brushSize.max = '220';
+  brushSize.value = '70';
+  brushSize.style.cssText = 'width:100%;';
+  brushSizeWrap.appendChild(brushSize);
+  paletteBar.appendChild(brushSizeWrap);
+
+  const brushColorWrap = document.createElement('label');
+  brushColorWrap.style.cssText =
+    'display:flex;flex-direction:row;align-items:center;gap:10px;flex-shrink:0;font-size:12px;color:#44403c;';
+  brushColorWrap.innerHTML =
+    '<span style="white-space:nowrap"><span style="font-family:var(--font-display)">ブラシカラー</span> <span style="font-family:var(--font-secondary);opacity:0.85">brush color</span></span>';
+  const brushColorInput = document.createElement('input');
+  brushColorInput.type = 'color';
+  brushColorInput.id = 'brush-color';
+  brushColorInput.value = '#5F9569';
+  brushColorInput.style.cssText =
+    'width:44px;height:34px;padding:2px;border:1px solid #e7e5e4;border-radius:10px;cursor:pointer;box-sizing:border-box;background:#fff;';
+  brushColorWrap.appendChild(brushColorInput);
+  paletteBar.appendChild(brushColorWrap);
+
+  const baseGroup = document.createElement('div');
+  baseGroup.style.cssText = 'display:flex;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap;';
+  const paletteLabel = document.createElement('span');
+  paletteLabel.style.cssText =
+    'font-size:12px;color:#57534e;white-space:nowrap;font-family:var(--font-secondary);';
+  paletteLabel.innerHTML =
+    '<span style="font-family:var(--font-display)">ベースカラー</span> <span style="opacity:0.85">base color</span>';
+  baseGroup.appendChild(paletteLabel);
+  for (let idx = 0; idx < BASIC_COLORS.length; idx++) {
+    const c = BASIC_COLORS[idx];
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.dataset.baseColor = c;
+    sw.setAttribute('aria-label', `Base color ${c}`);
+    sw.style.cssText = `width:34px;height:34px;border-radius:10px;border:2px solid ${
+      idx === 0 ? '#1c1917' : '#e7e5e4'
+    };background:${c};cursor:pointer;padding:0;box-sizing:border-box;flex-shrink:0;`;
+    baseGroup.appendChild(sw);
+  }
+  paletteBar.appendChild(baseGroup);
+  right.appendChild(paletteBar);
   const resize = (): void => {
     paint.resize();
   };
@@ -130,16 +226,32 @@ function runInput(): void {
   let currentAi: AIClassificationResult | null = null;
   let loadedEmotionId: string | null = null;
 
-  const brushSize = paintControls.querySelector('#brush-size') as HTMLInputElement;
-  const brushColor = paintControls.querySelector('#brush-color') as HTMLInputElement;
-  const btnUndo = paintControls.querySelector('#btn-undo') as HTMLButtonElement;
-  const btnClear = paintControls.querySelector('#btn-clear') as HTMLButtonElement;
-  const btnSend = paintControls.querySelector('#btn-send') as HTMLButtonElement;
+  let currentBaseColor: string = BASIC_COLORS[0];
 
+  brushColorInput.value = BASIC_COLORS[0];
   paint.setBrushRadius(Number(brushSize.value));
-  paint.setBrushColor(brushColor.value);
+  paint.setBrushColor(brushColorInput.value);
+  paint.setBaseColor(currentBaseColor);
   brushSize.addEventListener('input', () => paint.setBrushRadius(Number(brushSize.value)));
-  brushColor.addEventListener('input', () => paint.setBrushColor(brushColor.value));
+  brushColorInput.addEventListener('input', () => {
+    paint.setBrushColor(brushColorInput.value);
+  });
+
+  const baseSwatches = paletteBar.querySelectorAll('button[data-base-color]') as NodeListOf<HTMLButtonElement>;
+  for (const swatch of Array.from(baseSwatches)) {
+    swatch.addEventListener('click', () => {
+      const next = swatch.dataset.baseColor;
+      if (!next) return;
+      currentBaseColor = next;
+      paint.setBaseColor(next);
+      paint.clearPaint();
+
+      for (const other of Array.from(baseSwatches)) {
+        const oc = other.dataset.baseColor;
+        other.style.borderColor = oc === next ? '#1c1917' : '#e7e5e4';
+      }
+    });
+  }
   btnUndo.addEventListener('click', () => paint.undo());
   btnClear.addEventListener('click', () => paint.clearPaint());
   function setSendEnabled(on: boolean): void {
@@ -152,7 +264,8 @@ function runInput(): void {
     const text = input.value.trim();
     if (!text) return;
     submitBtn.disabled = true;
-    status.textContent = 'Classifying…';
+    resultBox.textContent = LOG_TEMPLATE_EMPTY;
+    statusBanner.textContent = 'Classifying…';
     try {
       const { result } = await fetchClassify(text);
       currentAi = {
@@ -162,21 +275,20 @@ function runInput(): void {
       };
       loadedEmotionId = currentAi.emotion_id;
       await paint.loadEmotionArchetype(loadedEmotionId);
+      paint.setBaseColor(currentBaseColor);
+      paint.setBrushColor(brushColorInput.value);
+      paint.clearPaint();
       requestAnimationFrame(() => {
         paint.resize();
       });
-      resultBox.textContent = [
-        `Label: ${currentAi.emotion_label}`,
-        `Archetype: ${currentAi.emotion_id}`,
-        `Valence: ${currentAi.valence.toFixed(2)} · Activation: ${currentAi.activation.toFixed(2)}`,
-        `Confidence: ${currentAi.confidence.toFixed(2)}`,
-      ].join('\n');
+      const classifiedAt = new Date().toISOString();
+      resultBox.textContent = formatAiLog(currentAi, classifiedAt);
       setSendEnabled(true);
-      status.textContent = 'Paint, then confirm.';
+      statusBanner.textContent = 'Paint, then confirm.';
     } catch (e) {
       console.error(e);
-      status.textContent = 'Error (is the local server running?)';
-      resultBox.textContent = String(e);
+      statusBanner.textContent = 'Error (is the local server running?)';
+      resultBox.textContent = LOG_TEMPLATE_EMPTY;
     } finally {
       submitBtn.disabled = false;
     }
@@ -190,10 +302,10 @@ function runInput(): void {
       const text = input.value.trim();
       btnSend.disabled = true;
       btnSend.style.cursor = 'wait';
-      status.textContent = 'Saving…';
+      statusBanner.textContent = 'Saving…';
       const sprite = await captureMatrixSprite(paint);
       if (!sprite.startsWith('data:image/png')) {
-        status.textContent = 'Sprite capture failed — try again after the 3D view loads.';
+        statusBanner.textContent = 'Sprite capture failed — try again after the 3D view loads.';
         setSendEnabled(true);
         btnSend.style.cursor = 'pointer';
         return;
@@ -218,11 +330,32 @@ function runInput(): void {
         status: 'submitted',
       };
       const saved = await saveSubmission(record);
-      status.textContent = saved
-        ? 'Sent. Matrix updates via server (WebSocket).'
-        : 'Save failed. Check server logs.';
-      setSendEnabled(false);
-      btnSend.style.cursor = 'not-allowed';
+      if (saved) {
+        statusBanner.textContent = 'Sent. Matrix updated. Ready for a new entry.';
+        input.value = '';
+        nameInput.value = '';
+        currentAi = null;
+        loadedEmotionId = null;
+        resultBox.textContent = LOG_TEMPLATE_EMPTY;
+        currentBaseColor = BASIC_COLORS[0];
+        brushColorInput.value = BASIC_COLORS[0];
+        paint.clearScene();
+        paint.setBrushColor(BASIC_COLORS[0]);
+        paint.setBaseColor(BASIC_COLORS[0]);
+        for (const other of Array.from(baseSwatches)) {
+          const oc = other.dataset.baseColor;
+          other.style.borderColor = oc === BASIC_COLORS[0] ? '#1c1917' : '#e7e5e4';
+        }
+        setSendEnabled(false);
+        btnSend.style.cursor = 'not-allowed';
+        requestAnimationFrame(() => {
+          paint.resize();
+        });
+      } else {
+        statusBanner.textContent = 'Save failed. Check server logs.';
+        setSendEnabled(true);
+        btnSend.style.cursor = 'pointer';
+      }
     })();
   });
 }
@@ -235,63 +368,8 @@ function runMatrix(): void {
 
   const wrap = document.createElement('div');
   wrap.style.cssText =
-    'position:fixed;inset:0;display:flex;flex-direction:column;background:#fafaf9;font-family:system-ui,sans-serif;';
+    'position:fixed;inset:0;display:flex;flex-direction:column;background:#fafaf9;font-family:var(--font-display);';
   root.appendChild(wrap);
-
-  const bar = document.createElement('div');
-  bar.style.cssText =
-    'flex:0 0 auto;padding:10px 16px;font-size:13px;color:#57534e;border-bottom:1px solid #e7e5e4;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;';
-  const barTitle = document.createElement('span');
-  barTitle.textContent = 'Emotion matrix — click a sprite for detail';
-  const barActions = document.createElement('div');
-  barActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;';
-  const btnExportMatrix = document.createElement('button');
-  btnExportMatrix.type = 'button';
-  btnExportMatrix.textContent = 'Export JSON backup';
-  btnExportMatrix.style.cssText =
-    'padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;color:#1c1917;';
-  const fileImportMatrix = document.createElement('input');
-  fileImportMatrix.type = 'file';
-  fileImportMatrix.accept = 'application/json,.json';
-  fileImportMatrix.style.display = 'none';
-  const btnImportMatrix = document.createElement('button');
-  btnImportMatrix.type = 'button';
-  btnImportMatrix.textContent = 'Import backup…';
-  btnImportMatrix.style.cssText =
-    'padding:6px 12px;font-size:12px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;color:#1c1917;';
-  btnImportMatrix.addEventListener('click', () => fileImportMatrix.click());
-  fileImportMatrix.addEventListener('change', () => {
-    void (async () => {
-      const file = fileImportMatrix.files?.[0];
-      fileImportMatrix.value = '';
-      if (!file) return;
-      const records = await readSubmissionsBackupFromFile(file);
-      if (!records?.length) {
-        window.alert('Could not read backup (invalid JSON or empty).');
-        return;
-      }
-      const replace = window.confirm(
-        'Replace ALL saved entries with this file?\n\nOK = replace entire list\nCancel = merge (same entry_id updated from file)'
-      );
-      const ok = await applySubmissionsImport(records, replace ? 'replace' : 'merge');
-      if (!ok) window.alert('Import failed.');
-      else void refreshFromServer();
-    })();
-  });
-  btnExportMatrix.addEventListener('click', () => {
-    void downloadSubmissionsBackup();
-  });
-  barActions.appendChild(btnExportMatrix);
-  barActions.appendChild(btnImportMatrix);
-  barActions.appendChild(fileImportMatrix);
-  bar.appendChild(barTitle);
-  bar.appendChild(barActions);
-  const barHint = document.createElement('div');
-  barHint.style.cssText = 'font-size:11px;color:#78716c;width:100%;';
-  barHint.textContent =
-    'Sprites and paint maps live in SQLite on disk (data/emotion-planet.db)—no browser export needed. Optional JSON export/import is for backup or moving machines. Matrix refreshes over WebSocket.';
-  bar.appendChild(barHint);
-  wrap.appendChild(bar);
 
   const canvasHost = document.createElement('div');
   canvasHost.style.cssText = 'flex:1;position:relative;min-height:0;';

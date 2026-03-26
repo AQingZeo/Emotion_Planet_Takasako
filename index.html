@@ -4,9 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Emotion Planet</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPMincho&family=Hina+Mincho&family=Potta+One&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; }
+    :root {
+      --font-title: 'Potta One', cursive;
+      --font-display: 'Hina Mincho', serif;
+      --font-secondary: 'BIZ UDPMincho', serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-display);
+    }
   </style>
 </head>
 <body>

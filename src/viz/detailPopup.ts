@@ -59,7 +59,7 @@ export function createDetailPopup(): DetailPopupHandle {
 
   const panel = document.createElement('div');
   panel.style.cssText =
-    'display:flex;flex-direction:row;align-items:stretch;max-width:min(960px,100%);width:100%;height:min(560px,85vh);background:#fafaf9;border-radius:16px;overflow:hidden;box-shadow:0 25px 50px rgba(0,0,0,0.2);font-family:sans-serif;';
+    'display:flex;flex-direction:row;align-items:stretch;max-width:min(960px,100%);width:100%;height:min(560px,85vh);background:#fafaf9;border-radius:16px;overflow:hidden;box-shadow:0 25px 50px rgba(0,0,0,0.2);font-family:var(--font-display);';
 
   const canvasWrap = document.createElement('div');
   canvasWrap.style.cssText =
@@ -79,22 +79,28 @@ export function createDetailPopup(): DetailPopupHandle {
 
   const title = document.createElement('div');
   title.style.cssText =
-    'font-weight:700;font-size:17px;line-height:1.35;color:#1c1917;margin:0;word-break:break-word;';
+    'font-weight:700;font-size:17px;line-height:1.35;color:#1c1917;margin:0;word-break:break-word;font-family:var(--font-display);';
+
+  const emotionHeadline = document.createElement('div');
+  emotionHeadline.style.cssText =
+    'font-weight:700;font-size:24px;line-height:1.3;color:#1c1917;margin:12px 0 0;word-break:break-word;font-family:var(--font-display);';
 
   const textBlock = document.createElement('div');
   textBlock.style.cssText =
-    'font-size:13px;color:#44403c;line-height:1.55;display:flex;flex-direction:column;gap:6px;word-break:break-word;';
+    'font-size:13px;color:#44403c;line-height:1.55;display:flex;flex-direction:column;gap:6px;word-break:break-word;font-family:var(--font-display);';
 
   const metaSmall = document.createElement('div');
-  metaSmall.style.cssText = 'font-size:11px;color:#a8a29e;line-height:1.5;';
+  metaSmall.style.cssText =
+    'font-size:11px;color:#a8a29e;line-height:1.5;font-family:var(--font-secondary);';
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.textContent = 'Close';
   closeBtn.style.cssText =
-    'margin-top:4px;padding:8px 16px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;font-size:13px;align-self:flex-start;';
+    'margin-top:4px;padding:8px 16px;border-radius:8px;border:1px solid #d6d3d1;background:#fff;cursor:pointer;font-size:13px;align-self:flex-start;font-family:var(--font-display);';
 
   headlineWrap.appendChild(title);
+  headlineWrap.appendChild(emotionHeadline);
   bottomWrap.appendChild(textBlock);
   bottomWrap.appendChild(metaSmall);
   bottomWrap.appendChild(closeBtn);
@@ -162,7 +168,12 @@ export function createDetailPopup(): DetailPopupHandle {
     const arch = getEmotionArchetype(record.ai_result.emotion_id);
     if (!arch) {
       title.textContent = record.input_text;
-      textBlock.textContent = `Unknown emotion: ${record.ai_result.emotion_id}`;
+      emotionHeadline.textContent = `emotion: ${record.ai_result.emotion_label || record.ai_result.emotion_id}`;
+      textBlock.textContent = '';
+      const warn = document.createElement('div');
+      warn.style.cssText = 'font-size:13px;color:#78716c;';
+      warn.textContent = `Unknown archetype: ${record.ai_result.emotion_id}`;
+      textBlock.appendChild(warn);
       metaSmall.textContent = `Valence ${record.ai_result.valence.toFixed(2)} · Activation ${record.ai_result.activation.toFixed(2)} · ${record.ai_result.emotion_id}`;
       return;
     }
@@ -170,14 +181,15 @@ export function createDetailPopup(): DetailPopupHandle {
     title.textContent = record.input_text;
     const pName = record.participant_name ?? 'N/A';
     const emotionWord = record.ai_result.emotion_label || arch.label;
+    emotionHeadline.textContent = `emotion: ${emotionWord}`;
     textBlock.textContent = '';
-    const line = (t: string): void => {
+    const line = (t: string, small = true): void => {
       const d = document.createElement('div');
       d.textContent = t;
+      if (small) d.style.cssText = 'font-size:13px;color:#44403c;';
       textBlock.appendChild(d);
     };
     line(`name: ${pName}`);
-    line(`emotion: ${emotionWord}`);
     line(`timestamp: ${formatSubmissionTimestamp(record.created_at)}`);
     metaSmall.textContent = '';
     metaSmall.appendChild(

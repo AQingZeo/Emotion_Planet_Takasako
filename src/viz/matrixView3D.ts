@@ -10,9 +10,8 @@ import { loadTextureAsync } from './textureFromDataUrl';
 
 const MIN = -1;
 const MAX = 1;
-/** Dark enough to read on light background; drawn after sprites with depthTest off. */
-const AXIS_COLOR = 0x1c1917;
-const GRID_COLOR = 0xd6d3d1;
+/** Axis lines (X/Y/Z); grey so sprites stay visually primary. */
+const AXIS_COLOR = 0xa8a29e;
 /** Depth separation along Z for entries sharing the same valence × activation (newer → more +Z). */
 const Z_FROM_TIME_SPAN = 0.55;
 const DEFAULT_SPRITE_SCALE = 0.22;
@@ -69,34 +68,43 @@ export function createMatrixView3D(
   const css2DRenderer = new CSS2DRenderer({ element: labelOverlay });
   css2DRenderer.setSize(container.clientWidth, container.clientHeight);
 
-  const labelStyle =
-    'color:#1c1917;font-size:11px;font-family:sans-serif;background:none;border:none;white-space:nowrap;';
-  function makeLabel(text: string): THREE.Object3D & { element: HTMLDivElement; isCSS2DObject: true } {
-    const div = document.createElement('div');
-    div.textContent = text;
-    div.style.cssText = labelStyle;
-    return new CSS2DObject(div) as THREE.Object3D & { element: HTMLDivElement; isCSS2DObject: true };
+  function makeCornerLabel(
+    ja: string,
+    en: string
+  ): THREE.Object3D & { element: HTMLDivElement; isCSS2DObject: true } {
+    const wrap = document.createElement('div');
+    wrap.style.cssText =
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.25;background:none;border:none;white-space:normal;max-width:8em;';
+    const top = document.createElement('div');
+    top.textContent = ja;
+    top.style.cssText =
+      'font-size:16px;font-weight:600;color:#1c1917;font-family:var(--font-display);letter-spacing:0.02em;';
+    const bottom = document.createElement('div');
+    bottom.textContent = en;
+    bottom.style.cssText =
+      'margin-top:3px;font-size:13px;font-weight:500;color:#57534e;font-family:var(--font-secondary);';
+    wrap.appendChild(top);
+    wrap.appendChild(bottom);
+    return new CSS2DObject(wrap) as THREE.Object3D & { element: HTMLDivElement; isCSS2DObject: true };
   }
 
-  const labelNeg = makeLabel('Negative');
+  const labelNeg = makeCornerLabel('ネガティブ', 'Negative');
   labelNeg.position.set(MIN, 0, 0);
   scene.add(labelNeg);
-  const labelPos = makeLabel('Positive');
+  const labelPos = makeCornerLabel('ポジティブ', 'Positive');
   labelPos.position.set(MAX, 0, 0);
   scene.add(labelPos);
-  const labelPassive = makeLabel('Passive');
+  const labelPassive = makeCornerLabel('パッシブ', 'Passive');
   labelPassive.position.set(0, MIN, 0);
   scene.add(labelPassive);
-  const labelActive = makeLabel('Active');
+  const labelActive = makeCornerLabel('アクティブ', 'Active');
   labelActive.position.set(0, MAX, 0);
   scene.add(labelActive);
 
-  const axisLabelValence = makeLabel('Valence →');
-  axisLabelValence.position.set(0.35, -1.18, 0);
-  scene.add(axisLabelValence);
-  const axisLabelActivation = makeLabel('Activation ↑');
-  axisLabelActivation.position.set(-1.2, 0.35, 0);
-  scene.add(axisLabelActivation);
+  /** Time (Z) axis: label at +Z end, slight XY nudge so text doesn’t sit exactly on the line origin. */
+  const labelTime = makeCornerLabel('時間', 'Time');
+  labelTime.position.set(0.04, -0.05, MAX);
+  scene.add(labelTime);
 
   const axisGeometry = new THREE.BufferGeometry();
   const axisPositions = new Float32Array([
@@ -112,27 +120,22 @@ export function createMatrixView3D(
   const axisLines = new THREE.LineSegments(axisGeometry, axisMaterial);
   axisLines.renderOrder = 100;
 
-  const gridPoints: number[] = [];
-  for (let t = MIN; t <= MAX; t += 0.5) {
-    gridPoints.push(t, MIN, 0, t, MAX, 0);
-    gridPoints.push(MIN, t, 0, MAX, t, 0);
-  }
-  const gridGeometry = new THREE.BufferGeometry();
-  gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(gridPoints, 3));
-  const gridMaterial = new THREE.LineBasicMaterial({
-    color: GRID_COLOR,
-    transparent: true,
-    opacity: 0.75,
+  const zAxisGeometry = new THREE.BufferGeometry();
+  /** Same span as X and Y axes (MIN→MAX = length 2). */
+  const zAxisPositions = new Float32Array([0, 0, MIN, 0, 0, MAX]);
+  zAxisGeometry.setAttribute('position', new THREE.BufferAttribute(zAxisPositions, 3));
+  const zAxisMaterial = new THREE.LineBasicMaterial({
+    color: AXIS_COLOR,
     depthTest: false,
     depthWrite: false,
   });
-  const gridLines = new THREE.LineSegments(gridGeometry, gridMaterial);
-  gridLines.renderOrder = 99;
+  const zAxisLines = new THREE.LineSegments(zAxisGeometry, zAxisMaterial);
+  zAxisLines.renderOrder = 100;
 
   const spriteGroup = new THREE.Group();
   scene.add(spriteGroup);
-  scene.add(gridLines);
   scene.add(axisLines);
+  scene.add(zAxisLines);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -298,8 +301,8 @@ export function createMatrixView3D(
     renderer.dispose();
     axisGeometry.dispose();
     axisMaterial.dispose();
-    gridGeometry.dispose();
-    gridMaterial.dispose();
+    zAxisGeometry.dispose();
+    zAxisMaterial.dispose();
     if (labelOverlay.parentElement) labelOverlay.parentElement.removeChild(labelOverlay);
     if (renderer.domElement.parentElement) renderer.domElement.parentElement.removeChild(renderer.domElement);
   }
