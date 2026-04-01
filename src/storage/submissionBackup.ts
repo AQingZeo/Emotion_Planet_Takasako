@@ -36,7 +36,14 @@ function parseSubmissionRecordLoose(raw: unknown): SubmissionRecord | null {
   if (!ai) return null;
   if (!o.paint_result || typeof o.paint_result !== 'object') return null;
   const p = o.paint_result as Record<string, unknown>;
-  if (typeof p.blob_texture_data_url !== 'string' || typeof p.terrain_texture_data_url !== 'string') return null;
+  if (typeof p.blob_texture_data_url !== 'string') return null;
+  const terrainBaseColor =
+    typeof p.terrain_base_color === 'string'
+      ? p.terrain_base_color
+      : typeof p.terrain_texture_data_url === 'string'
+        ? '#5F9569'
+        : null;
+  if (!terrainBaseColor) return null;
   if (!o.matrix_render || typeof o.matrix_render !== 'object') return null;
   const m = o.matrix_render as Record<string, unknown>;
   if (typeof m.sprite_png_data_url !== 'string') return null;
@@ -53,7 +60,7 @@ function parseSubmissionRecordLoose(raw: unknown): SubmissionRecord | null {
     ai_result: ai,
     paint_result: {
       blob_texture_data_url: p.blob_texture_data_url,
-      terrain_texture_data_url: p.terrain_texture_data_url,
+      terrain_base_color: terrainBaseColor,
     },
     matrix_render: { sprite_png_data_url: m.sprite_png_data_url },
     status: o.status,

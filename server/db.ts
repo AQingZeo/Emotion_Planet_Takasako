@@ -50,6 +50,9 @@ function migrateSubmissionsV2(database: Database.Database): void {
   if (!cols.some((c) => c.name === 'participant_name')) {
     database.exec(`ALTER TABLE submissions ADD COLUMN participant_name TEXT DEFAULT 'N/A'`);
   }
+  if (!cols.some((c) => c.name === 'terrain_base_color')) {
+    database.exec(`ALTER TABLE submissions ADD COLUMN terrain_base_color TEXT DEFAULT '#5F9569'`);
+  }
 }
 
 function normalizeParticipantName(raw: string | undefined): string {
@@ -93,7 +96,10 @@ function rowToRecord(row: Record<string, unknown>): SubmissionRecord {
     ai_result: ai,
     paint_result: {
       blob_texture_data_url: toDataUrl(row.blob_paint as Buffer, row.blob_mime as string),
-      terrain_texture_data_url: toDataUrl(row.terrain_paint as Buffer, row.terrain_mime as string),
+      terrain_base_color:
+        typeof row.terrain_base_color === 'string' && row.terrain_base_color.trim()
+          ? (row.terrain_base_color as string)
+          : '#5F9569',
     },
     matrix_render: {
       sprite_png_data_url: toDataUrl(row.sprite_png as Buffer, row.sprite_mime as string),
@@ -123,17 +129,16 @@ export function getSubmission(entryId: string): SubmissionRecord | null {
 export function insertSubmission(record: SubmissionRecord): void {
   const sprite = parseDataUrl(record.matrix_render.sprite_png_data_url);
   const blob = parseDataUrl(record.paint_result.blob_texture_data_url);
-  const terrain = parseDataUrl(record.paint_result.terrain_texture_data_url);
   const d = getDb();
   d.prepare(
     `INSERT INTO submissions (
       entry_id, created_at, session_id, participant_name, input_text, input_language,
       emotion_id, emotion_label, confidence, valence, activation, reasoning_short, status,
-      sprite_png, sprite_mime, blob_paint, blob_mime, terrain_paint, terrain_mime
+      sprite_png, sprite_mime, blob_paint, blob_mime, terrain_paint, terrain_mime, terrain_base_color
     ) VALUES (
       @entry_id, @created_at, @session_id, @participant_name, @input_text, @input_language,
       @emotion_id, @emotion_label, @confidence, @valence, @activation, @reasoning_short, @status,
-      @sprite_png, @sprite_mime, @blob_paint, @blob_mime, @terrain_paint, @terrain_mime
+      @sprite_png, @sprite_mime, @blob_paint, @blob_mime, @terrain_paint, @terrain_mime, @terrain_base_color
     )`
   ).run({
     entry_id: record.entry_id,
@@ -153,8 +158,9 @@ export function insertSubmission(record: SubmissionRecord): void {
     sprite_mime: sprite.mime || 'image/png',
     blob_paint: blob.buffer,
     blob_mime: blob.mime || 'image/jpeg',
-    terrain_paint: terrain.buffer,
-    terrain_mime: terrain.mime || 'image/jpeg',
+    terrain_paint: Buffer.alloc(0),
+    terrain_mime: 'application/octet-stream',
+    terrain_base_color: record.paint_result.terrain_base_color || '#5F9569',
   });
 }
 
@@ -165,11 +171,11 @@ export function replaceAllSubmissions(records: SubmissionRecord[]): void {
     `INSERT INTO submissions (
       entry_id, created_at, session_id, participant_name, input_text, input_language,
       emotion_id, emotion_label, confidence, valence, activation, reasoning_short, status,
-      sprite_png, sprite_mime, blob_paint, blob_mime, terrain_paint, terrain_mime
+      sprite_png, sprite_mime, blob_paint, blob_mime, terrain_paint, terrain_mime, terrain_base_color
     ) VALUES (
       @entry_id, @created_at, @session_id, @participant_name, @input_text, @input_language,
       @emotion_id, @emotion_label, @confidence, @valence, @activation, @reasoning_short, @status,
-      @sprite_png, @sprite_mime, @blob_paint, @blob_mime, @terrain_paint, @terrain_mime
+      @sprite_png, @sprite_mime, @blob_paint, @blob_mime, @terrain_paint, @terrain_mime, @terrain_base_color
     )`
   );
   const runInsert = d.transaction((items: SubmissionRecord[]) => {
@@ -177,7 +183,6 @@ export function replaceAllSubmissions(records: SubmissionRecord[]): void {
     for (const record of items) {
       const sprite = parseDataUrl(record.matrix_render.sprite_png_data_url);
       const blob = parseDataUrl(record.paint_result.blob_texture_data_url);
-      const terrain = parseDataUrl(record.paint_result.terrain_texture_data_url);
       insert.run({
         entry_id: record.entry_id,
         created_at: record.created_at,
@@ -196,8 +201,9 @@ export function replaceAllSubmissions(records: SubmissionRecord[]): void {
         sprite_mime: sprite.mime || 'image/png',
         blob_paint: blob.buffer,
         blob_mime: blob.mime || 'image/jpeg',
-        terrain_paint: terrain.buffer,
-        terrain_mime: terrain.mime || 'image/jpeg',
+        terrain_paint: Buffer.alloc(0),
+        terrain_mime: 'application/octet-stream',
+        terrain_base_color: record.paint_result.terrain_base_color || '#5F9569',
       });
     }
   });

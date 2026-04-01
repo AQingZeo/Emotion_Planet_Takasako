@@ -101,6 +101,13 @@ app.post('/api/submissions', (req, res) => {
       res.status(400).json({ error: 'invalid submission body' });
       return;
     }
+    if (
+      typeof body.paint_result.blob_texture_data_url !== 'string' ||
+      typeof body.paint_result.terrain_base_color !== 'string'
+    ) {
+      res.status(400).json({ error: 'invalid paint_result payload' });
+      return;
+    }
     insertSubmission(body);
     broadcastSubmissionsChanged(wss);
     res.status(201).json({ ok: true, entry_id: body.entry_id });

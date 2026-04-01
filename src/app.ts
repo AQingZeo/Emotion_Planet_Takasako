@@ -8,6 +8,7 @@ import type { AIClassificationResult, SubmissionRecord } from './data/types';
 import { saveSubmission, getActiveEntries, getEntry } from './storage/submissions';
 import { connectSubmissionsSocket } from './realtime/submissionsWs';
 import { createPaintView3D } from './viz/paintView3D';
+import { createTerrainPreview3D } from './viz/terrainPreview3D';
 import { captureMatrixSprite } from './viz/pngCapture';
 import { createMatrixView3D } from './viz/matrixView3D';
 import { createDetailPopup } from './viz/detailPopup';
@@ -137,10 +138,23 @@ function runInput(): void {
   right.appendChild(statusBanner);
 
   const paint = createPaintView3D(right);
+  const terrainPreviewWrap = document.createElement('div');
+  terrainPreviewWrap.style.cssText =
+    'position:absolute;top:64px;right:16px;z-index:49;width:min(280px,30vw);height:min(220px,24vh);min-width:180px;min-height:140px;border-radius:12px;overflow:hidden;border:1px solid #d6d3d1;background:#f5f5f4;';
+  right.appendChild(terrainPreviewWrap);
+  const terrainPreviewBadge = document.createElement('div');
+  terrainPreviewBadge.style.cssText =
+    'position:absolute;top:8px;left:8px;z-index:2;padding:0;font-size:10px;line-height:1.2;color:#57534e;font-family:var(--font-secondary);pointer-events:none;';
+  terrainPreviewBadge.textContent = 'Terrain view';
+  terrainPreviewWrap.appendChild(terrainPreviewBadge);
+  const terrainPreviewCanvasHost = document.createElement('div');
+  terrainPreviewCanvasHost.style.cssText = 'position:absolute;inset:0;';
+  terrainPreviewWrap.appendChild(terrainPreviewCanvasHost);
+  const terrainPreview = createTerrainPreview3D(terrainPreviewCanvasHost);
 
   const resultBox = document.createElement('div');
   resultBox.style.cssText =
-    'position:absolute;right:16px;bottom:108px;z-index:50;pointer-events:none;max-width:min(380px,42vw);min-height:64px;font-size:10px;line-height:1.4;font-family:var(--font-secondary);color:#44403c;background:#f5f5f4;padding:10px 12px;border-radius:12px;border:1px solid #e7e5e4;white-space:pre-wrap;box-shadow:0 14px 30px rgba(0,0,0,0.10);box-sizing:border-box;';
+    'position:absolute;right:16px;bottom:108px;z-index:50;pointer-events:none;max-width:min(190px,21vw);min-height:64px;font-size:10px;line-height:1.4;font-family:var(--font-secondary);color:#44403c;background:#f5f5f4;padding:10px 12px;border-radius:12px;border:1px solid #e7e5e4;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;box-shadow:0 14px 30px rgba(0,0,0,0.10);box-sizing:border-box;';
   resultBox.textContent = LOG_TEMPLATE_EMPTY;
   right.appendChild(resultBox);
 
@@ -218,6 +232,7 @@ function runInput(): void {
   right.appendChild(paletteBar);
   const resize = (): void => {
     paint.resize();
+    terrainPreview.resize();
   };
   window.addEventListener('resize', resize);
   const ro = new ResizeObserver(resize);
@@ -232,6 +247,7 @@ function runInput(): void {
   paint.setBrushRadius(Number(brushSize.value));
   paint.setBrushColor(brushColorInput.value);
   paint.setBaseColor(currentBaseColor);
+  terrainPreview.setBaseColor(currentBaseColor);
   brushSize.addEventListener('input', () => paint.setBrushRadius(Number(brushSize.value)));
   brushColorInput.addEventListener('input', () => {
     paint.setBrushColor(brushColorInput.value);
@@ -244,6 +260,7 @@ function runInput(): void {
       if (!next) return;
       currentBaseColor = next;
       paint.setBaseColor(next);
+      terrainPreview.setBaseColor(next);
       paint.clearPaint();
 
       for (const other of Array.from(baseSwatches)) {
@@ -275,7 +292,9 @@ function runInput(): void {
       };
       loadedEmotionId = currentAi.emotion_id;
       await paint.loadEmotionArchetype(loadedEmotionId);
+      await terrainPreview.loadEmotionArchetype(loadedEmotionId);
       paint.setBaseColor(currentBaseColor);
+      terrainPreview.setBaseColor(currentBaseColor);
       paint.setBrushColor(brushColorInput.value);
       paint.clearPaint();
       requestAnimationFrame(() => {
@@ -311,7 +330,6 @@ function runInput(): void {
         return;
       }
       const blobTex = paint.getBlobPaintDataUrl();
-      const terrainTex = paint.getTerrainPaintDataUrl();
       const created = new Date().toISOString();
       const rawName = nameInput.value.trim();
       const participant_name = rawName.length > 0 ? rawName : 'N/A';
@@ -324,7 +342,7 @@ function runInput(): void {
         ai_result: currentAi,
         paint_result: {
           blob_texture_data_url: blobTex,
-          terrain_texture_data_url: terrainTex,
+          terrain_base_color: currentBaseColor,
         },
         matrix_render: { sprite_png_data_url: sprite },
         status: 'submitted',
@@ -340,8 +358,10 @@ function runInput(): void {
         currentBaseColor = BASIC_COLORS[0];
         brushColorInput.value = BASIC_COLORS[0];
         paint.clearScene();
+        terrainPreview.clearScene();
         paint.setBrushColor(BASIC_COLORS[0]);
         paint.setBaseColor(BASIC_COLORS[0]);
+        terrainPreview.setBaseColor(BASIC_COLORS[0]);
         for (const other of Array.from(baseSwatches)) {
           const oc = other.dataset.baseColor;
           other.style.borderColor = oc === BASIC_COLORS[0] ? '#1c1917' : '#e7e5e4';
@@ -358,6 +378,14 @@ function runInput(): void {
       }
     })();
   });
+
+  window.addEventListener(
+    'beforeunload',
+    () => {
+      terrainPreview.dispose();
+    },
+    { once: true }
+  );
 }
 
 function runMatrix(): void {

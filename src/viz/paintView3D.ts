@@ -7,12 +7,14 @@ import { MOUSE } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { getEmotionArchetype } from '../config/emotions';
 import { loadGlb } from './glbLoader';
-import { applyPaintTextureToMeshes, PaintSystem } from './paintSystem';
+import { applyHeightRampColorToMeshes, applyPaintTextureToMeshes, PaintSystem } from './paintSystem';
 import { frameCameraToObject } from './cameraFraming';
 import { cropDataUrlToOpaqueBounds, sanitizeSpriteAlpha } from '../util/cropAlphaImage';
-import { BLOB_SCENE_Y, TERRAIN_SCENE_Y } from './sceneLayout';
 
 const FIT_SIZE = 1.35;
+const INPUT_BLOB_SCALE = FIT_SIZE * 1.25;
+const INPUT_FRAME_MARGIN = 1.08;
+const INPUT_BLOB_FILM_OFFSET_X = 5;
 
 function fitObjectToUnit(group: THREE.Object3D, targetMax: number): void {
   const box = new THREE.Box3().setFromObject(group);
@@ -39,7 +41,6 @@ export interface PaintView3DHandle {
   isPaintingEnabled(): boolean;
   loadEmotionArchetype(emotionId: string): Promise<void>;
   getBlobPaintDataUrl(): string;
-  getTerrainPaintDataUrl(): string;
   setBrushRadius(radiusPx: number): void;
   setBrushColor(hex: string): void;
   setBaseColor(hex: string): void;
@@ -105,14 +106,14 @@ export function createPaintView3D(
   let terrainMeshes: THREE.Mesh[] = [];
 
   let blobPaint: PaintSystem | null = null;
-  let terrainPaint: PaintSystem | null = null;
+  let terrainBaseColor = '#5F9569';
 
   let paintingEnabled = true;
   let isDraggingPaint = false;
   let lastInteract = performance.now();
-  const paintHistory: Array<'blob' | 'terrain'> = [];
+  const paintHistory: Array<'blob'> = [];
 
-  let lastStroke: { u: number; v: number; mesh: THREE.Mesh; kind: 'blob' | 'terrain' } | null = null;
+  let lastStroke: { u: number; v: number; mesh: THREE.Mesh; kind: 'blob' } | null = null;
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -143,10 +144,10 @@ export function createPaintView3D(
   }
 
   function paintFromEvent(clientX: number, clientY: number): void {
-    if (!paintingEnabled || (!blobPaint && !terrainPaint)) return;
+    if (!paintingEnabled || !blobPaint) return;
     syncPointer(clientX, clientY);
     raycaster.setFromCamera(pointer, camera);
-    const candidates = [...blobMeshes, ...terrainMeshes];
+    const candidates = [...blobMeshes];
     const hits = raycaster.intersectObjects(candidates, true);
     if (hits.length === 0) return;
     const hit = hits[0];
@@ -169,20 +170,6 @@ export function createPaintView3D(
         paintHistory.push('blob');
       }
       lastStroke = { u: uv.x, v: uv.y, mesh, kind: 'blob' };
-    } else if (terrainMeshes.includes(mesh) && terrainPaint) {
-      if (
-        lastStroke &&
-        lastStroke.kind === 'terrain' &&
-        lastStroke.mesh === mesh &&
-        terrainPaint
-      ) {
-        terrainPaint.paintSegmentUv(lastStroke.u, lastStroke.v, uv.x, uv.y);
-        paintHistory.push('terrain');
-      } else {
-        terrainPaint.paintAtUv(uv.x, uv.y);
-        paintHistory.push('terrain');
-      }
-      lastStroke = { u: uv.x, v: uv.y, mesh, kind: 'terrain' };
     }
   }
 
@@ -242,8 +229,7 @@ export function createPaintView3D(
   const GREENSCREEN = 0x00ff00;
 
   async function captureBlobSpriteDataUrl(): Promise<string> {
-    if (!blobRoot || !terrainRoot) return '';
-    const prevVis = terrainRoot.visible;
+    if (!blobRoot) return '';
     const prevBg = scene.background;
     const prevClear = new THREE.Color();
     renderer.getClearColor(prevClear);
@@ -251,7 +237,6 @@ export function createPaintView3D(
     const prevShadowMap = renderer.shadowMap.enabled;
     const prevKeyCast = key.castShadow;
 
-    terrainRoot.visible = false;
     scene.background = new THREE.Color(GREENSCREEN);
     renderer.setClearColor(GREENSCREEN, 1);
     renderer.shadowMap.enabled = false;
@@ -276,7 +261,6 @@ export function createPaintView3D(
     const cleaned = await sanitizeSpriteAlpha(rawUrl);
     const url = await cropDataUrlToOpaqueBounds(cleaned);
 
-    terrainRoot.visible = prevVis;
     scene.background = prevBg;
     renderer.setClearColor(prevClear, prevAlpha);
     renderer.shadowMap.enabled = prevShadowMap;
@@ -296,10 +280,6 @@ export function createPaintView3D(
     if (blobPaint) {
       blobPaint.dispose();
       blobPaint = null;
-    }
-    if (terrainPaint) {
-      terrainPaint.dispose();
-      terrainPaint = null;
     }
     if (blobRoot) {
       root.remove(blobRoot);
@@ -337,44 +317,34 @@ export function createPaintView3D(
 
     clearSceneModels();
 
-    const [blobLoaded, terrainLoaded] = await Promise.all([
-      loadGlb(arch.blobModel, 'blob'),
-      loadGlb(arch.terrainModel, 'terrain'),
-    ]);
+    const blobLoaded = await loadGlb(arch.blobModel, 'blob');
 
     blobRoot = blobLoaded.scene;
-    terrainRoot = terrainLoaded.scene;
     blobMeshes = blobLoaded.meshes;
-    terrainMeshes = terrainLoaded.meshes;
     if (blobMeshes.length === 0) {
       console.warn('[paintView3D] blob.glb has no mesh objects; scene may be empty or use unsupported types.');
     }
-    if (terrainMeshes.length === 0) {
-      console.warn('[paintView3D] terrain.glb has no mesh objects.');
-    }
 
     blobRoot.name = 'blob';
-    terrainRoot.name = 'terrain';
 
-    fitObjectToUnit(blobRoot, FIT_SIZE);
-    fitObjectToUnit(terrainRoot, FIT_SIZE * 1.25);
+    fitObjectToUnit(blobRoot, INPUT_BLOB_SCALE);
 
-    blobRoot.position.set(0, BLOB_SCENE_Y, 0);
-    terrainRoot.position.set(0, TERRAIN_SCENE_Y, 0);
+    blobRoot.position.set(0, 0, 0);
 
     root.add(blobRoot);
-    root.add(terrainRoot);
 
     blobPaint = new PaintSystem({ brushRadiusScale: 2.6 });
-    /** Planar terrain UV spreads strokes; slightly larger + segment fill helps continuity. */
-    terrainPaint = new PaintSystem({ brushRadiusScale: 2.1 });
     paintHistory.length = 0;
     applyPaintTextureToMeshes(blobMeshes, blobPaint.texture);
-    applyPaintTextureToMeshes(terrainMeshes, terrainPaint.texture);
+    terrainMeshes = [];
 
     resize();
-    /** Slightly tighter than default 1.5 — closer framing on the input canvas. */
-    frameCameraToObject(camera, controls, root, 1.28);
+    /** Keep the blob centered/larger; terrain stays as distant background decoration. */
+    frameCameraToObject(camera, controls, blobRoot, INPUT_FRAME_MARGIN);
+    /** Horizontal composition offset while keeping orbit center at blob center. */
+    camera.filmOffset = INPUT_BLOB_FILM_OFFSET_X;
+    camera.updateProjectionMatrix();
+    controls.update();
     lastInteract = performance.now();
   }
 
@@ -400,30 +370,25 @@ export function createPaintView3D(
     getBlobPaintDataUrl(): string {
       return blobPaint?.getDataUrl() ?? '';
     },
-    getTerrainPaintDataUrl(): string {
-      return terrainPaint?.getDataUrl() ?? '';
-    },
     setBrushRadius(r: number): void {
       blobPaint?.setBrushSize(r);
-      terrainPaint?.setBrushSize(r);
     },
     setBrushColor(hex: string): void {
       blobPaint?.setBrushColor(hex);
-      terrainPaint?.setBrushColor(hex);
     },
     setBaseColor(hex: string): void {
+      terrainBaseColor = hex;
       blobPaint?.setBaseColor(hex);
-      terrainPaint?.setBaseColor(hex);
+      applyHeightRampColorToMeshes(terrainMeshes, terrainBaseColor);
     },
     undo(): void {
       const last = paintHistory.pop();
       if (last === 'blob') blobPaint?.undo();
-      else if (last === 'terrain') terrainPaint?.undo();
     },
     clearPaint(): void {
       paintHistory.length = 0;
       blobPaint?.clearToNeutral();
-      terrainPaint?.clearToNeutral();
+      applyHeightRampColorToMeshes(terrainMeshes, terrainBaseColor);
     },
     clearScene(): void {
       clearSceneModels();

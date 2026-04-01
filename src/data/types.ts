@@ -16,7 +16,8 @@ export type SubmissionStatus = 'draft' | 'submitted';
 export interface PaintResult {
   /** Data URL or placeholder path for blob paint layer */
   blob_texture_data_url: string;
-  terrain_texture_data_url: string;
+  /** Selected terrain base color (hex), e.g. #5F9569. */
+  terrain_base_color: string;
 }
 
 export interface MatrixRender {

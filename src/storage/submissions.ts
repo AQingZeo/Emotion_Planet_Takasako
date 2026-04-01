@@ -12,17 +12,16 @@ const MAX_SPRITE_SIDE = 768;
 const MAX_PAINT_SIDE = 512;
 
 async function compressRecordForStorage(r: SubmissionRecord): Promise<SubmissionRecord> {
-  const [sprite, blobT, terrainT] = await Promise.all([
+  const [sprite, blobT] = await Promise.all([
     downscalePngPreservingAlpha(r.matrix_render.sprite_png_data_url, MAX_SPRITE_SIDE),
     downscaleDataUrl(r.paint_result.blob_texture_data_url, MAX_PAINT_SIDE, 'image/jpeg', 0.88),
-    downscaleDataUrl(r.paint_result.terrain_texture_data_url, MAX_PAINT_SIDE, 'image/jpeg', 0.88),
   ]);
   return {
     ...r,
     matrix_render: { sprite_png_data_url: sprite },
     paint_result: {
       blob_texture_data_url: blobT,
-      terrain_texture_data_url: terrainT,
+      terrain_base_color: r.paint_result.terrain_base_color,
     },
   };
 }

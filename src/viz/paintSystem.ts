@@ -209,3 +209,44 @@ export function applyPaintTextureToMeshes(meshes: THREE.Mesh[], map: THREE.Textu
     mesh.material = mat;
   }
 }
+
+function ensureHeightRampVertexColors(mesh: THREE.Mesh): void {
+  const geometry = mesh.geometry;
+  const pos = geometry.getAttribute('position');
+  if (!pos || pos.itemSize < 3 || pos.count === 0) return;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return;
+  const minY = box.min.y;
+  const maxY = box.max.y;
+  const spanY = Math.max(1e-6, maxY - minY);
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    const raw = Math.max(0, Math.min(1, (y - minY) / spanY));
+    /** Lift low-mid tones so pure black stays only near the very bottom. */
+    const t = Math.pow(raw, 0.72);
+    colors[i * 3] = t;
+    colors[i * 3 + 1] = t;
+    colors[i * 3 + 2] = t;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+/** Apply baseColor * normalized-local-height ramp using toon + vertex colors. */
+export function applyHeightRampColorToMeshes(meshes: THREE.Mesh[], colorHex: string): void {
+  const gradientMap = getSharedToonGradientMap();
+  const base = new THREE.Color(colorHex);
+  for (const mesh of meshes) {
+    ensureHeightRampVertexColors(mesh);
+    const current = mesh.material;
+    if (current instanceof THREE.MeshToonMaterial && current.vertexColors) {
+      current.color.copy(base);
+      current.needsUpdate = true;
+      continue;
+    }
+    const mat = new THREE.MeshToonMaterial({ color: base, gradientMap, side: THREE.DoubleSide, vertexColors: true });
+    if (current instanceof THREE.Material) current.dispose();
+    mesh.material = mat;
+  }
+}
