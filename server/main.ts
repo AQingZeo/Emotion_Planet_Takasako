@@ -2,27 +2,38 @@
  * Local Express API + WebSocket + SQLite. Serves Vite build in production.
  */
 
+import './envBootstrap';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
-import { config } from 'dotenv';
-import { getDb, insertSubmission, listSubmissions, getSubmission, replaceAllSubmissions } from './db';
-import type { SubmissionRecord } from '../src/data/types';
+import {
+  DB_PATH,
+  getDb,
+  insertSubmission,
+  listSubmissions,
+  getSubmission,
+  replaceAllSubmissions,
+} from './db';
+import type { AIClassificationResult, SubmissionRecord } from '../src/data/types';
 import { classifyEmotion } from '../src/ai/axisAgent';
+import { MOCK_CLASSIFICATION } from '../src/ai/mockClassification';
+import { getEmotionArchetype, isValidEmotionId } from '../src/config/emotions';
+import { isOpenAiKeyConfigured } from '../src/config/openaiKey';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-
-config({ path: path.join(ROOT, '.env.local') });
-config({ path: path.join(ROOT, '.env') });
 
 const PORT = Number(process.env.PORT) || 4000;
 const HOST = process.env.BIND_HOST ?? '127.0.0.1';
 
 getDb();
+console.log(`[emotion-planet] matrix SQLite: ${DB_PATH}`);
+console.log(
+  `[emotion-planet] OpenAI: ${isOpenAiKeyConfigured() ? 'API key loaded (OPENAI_API_KEY or alias)' : 'NO KEY — set OPENAI_API_KEY in .env.local'}`
+);
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -52,12 +63,35 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+  try {
+    getDb().prepare('SELECT 1 AS ok').get();
+    res.json({ ok: true, sqlite: true });
+  } catch (e) {
+    console.error(e);
+    res.status(503).json({ ok: false, sqlite: false, error: String(e) });
+  }
 });
 
 app.post('/api/classify', async (req, res) => {
   try {
     const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    const useMock = req.body?.mock === true;
+    if (useMock) {
+      const rawId = typeof req.body?.emotion_id === 'string' ? req.body.emotion_id.trim() : '';
+      const emotion_id = isValidEmotionId(rawId) ? rawId : 'emotion_c';
+      const arch = getEmotionArchetype(emotion_id);
+      const result: AIClassificationResult = {
+        emotion_id,
+        emotion_label: arch?.label ?? MOCK_CLASSIFICATION.emotion_label,
+        confidence: MOCK_CLASSIFICATION.confidence,
+        valence: MOCK_CLASSIFICATION.valence,
+        activation: MOCK_CLASSIFICATION.activation,
+        reasoning_short: MOCK_CLASSIFICATION.reasoning_short,
+      };
+      const rawJson = JSON.stringify({ mock: true, emotion_id });
+      res.json({ result, rawJson });
+      return;
+    }
     if (!text) {
       res.status(400).json({ error: 'text required' });
       return;

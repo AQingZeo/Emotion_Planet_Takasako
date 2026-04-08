@@ -25,8 +25,8 @@ function isGreenKey(r: number, g: number, b: number): boolean {
 }
 
 /**
- * Flood-fill from image border: remove pixels matching greenscreen key and connected to edges.
- * Interior green (e.g. user paint) not connected to border is kept.
+ * Flood-fill from image border: remove key-green connected to edges.
+ * Followed by `removeRemainingGreenscreenKey` (holes through mesh + any leftover key color).
  */
 function removeGreenscreenConnectedToEdges(d: Uint8ClampedArray, w: number, h: number): void {
   const n = w * h;
@@ -89,6 +89,23 @@ function removeGreenscreenConnectedToEdges(d: Uint8ClampedArray, w: number, h: n
       d[p + 3] = 0;
       queue[tail++] = ni;
     }
+  }
+}
+
+/**
+ * After edge-connected flood: still-green pixels = holes / interior seeing greenscreen through mesh.
+ * Also removes any exact key-green user paint (same RGB as clear color).
+ */
+function removeRemainingGreenscreenKey(d: Uint8ClampedArray): void {
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    if (!isGreenKey(r, g, b)) continue;
+    d[i] = 0;
+    d[i + 1] = 0;
+    d[i + 2] = 0;
+    d[i + 3] = 0;
   }
 }
 
@@ -198,6 +215,7 @@ function applySpritePixelPipelineToCanvas(canvas: HTMLCanvasElement): void {
   const imageData = ctx.getImageData(0, 0, w, h);
   const d = imageData.data;
   removeGreenscreenConnectedToEdges(d, w, h);
+  removeRemainingGreenscreenKey(d);
   cleanSpritePixels(d);
   ctx.putImageData(imageData, 0, 0);
 }
@@ -270,6 +288,7 @@ export async function cropDataUrlToOpaqueBounds(dataUrl: string): Promise<string
         const imageData = ctx.getImageData(0, 0, w, h);
         const d = imageData.data;
         removeGreenscreenConnectedToEdges(d, w, h);
+        removeRemainingGreenscreenKey(d);
         cleanSpritePixels(d);
         ctx.putImageData(imageData, 0, 0);
 

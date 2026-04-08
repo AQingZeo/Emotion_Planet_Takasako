@@ -12,9 +12,12 @@ const MIN = -1;
 const MAX = 1;
 /** Axis lines (X/Y/Z); grey so sprites stay visually primary. */
 const AXIS_COLOR = 0xa8a29e;
-/** Depth separation along Z for entries sharing the same valence × activation (newer → more +Z). */
-const Z_FROM_TIME_SPAN = 0.55;
 const DEFAULT_SPRITE_SCALE = 0.22;
+/** Canvas / scene background (matches installation shell). */
+const MATRIX_SCENE_BG = 0xfffbf7;
+/** Subtle Z spread so same-second entries remain pickable. */
+const Z_TIME_JITTER = 0.05;
+const HALF_DAY_MS = 12 * 60 * 60 * 1000;
 
 export interface MatrixView3DOptions {
   maxVisible?: number;
@@ -47,7 +50,7 @@ export function createMatrixView3D(
   const spriteScale = options?.spriteScale ?? DEFAULT_SPRITE_SCALE;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xfafaf9);
+  scene.background = new THREE.Color(MATRIX_SCENE_BG);
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
   camera.position.set(0, 0.15, 2.8);
@@ -167,26 +170,35 @@ export function createMatrixView3D(
     return ((h >>> 0) % 1000) / 1000;
   }
 
-  function zFromCreatedAt(iso: string, tMin: number, tMax: number, entryId: string): number {
-    const t = new Date(iso).getTime();
-    let z = 0;
-    if (Number.isFinite(t) && tMax > tMin) {
-      const u = (t - tMin) / (tMax - tMin);
-      z = (u - 0.5) * Z_FROM_TIME_SPAN;
-    }
-    /** Tiny spread per entry so identical valence/activation/time still separate slightly in Z. */
-    const jitter = (hashPhase(entryId) - 0.5) * 0.12;
-    return z + jitter;
+  /**
+   * Local time mapped to [0,1) over one 12h cycle: same Z at 00:00 and 12:00, 06:00 and 18:00, etc.
+   * Viewer timezone. Full Z span = 12 wall-clock hours (repeats twice per calendar day).
+   */
+  function fractionOfLocal12h(iso: string): number {
+    const d = new Date(iso);
+    const t = d.getTime();
+    if (!Number.isFinite(t)) return 0.5;
+    const msIntoDay =
+      d.getHours() * 3600000 +
+      d.getMinutes() * 60000 +
+      d.getSeconds() * 1000 +
+      d.getMilliseconds();
+    const u = (msIntoDay % HALF_DAY_MS) / HALF_DAY_MS;
+    return THREE.MathUtils.clamp(u, 0, 1);
+  }
+
+  /** Z = time axis: 12h period → MIN (-1)…MAX (+1), plus tiny jitter. */
+  function zFromCreatedAt(iso: string, entryId: string): number {
+    const u = fractionOfLocal12h(iso);
+    const baseZ = MIN + u * (MAX - MIN);
+    const jitter = (hashPhase(entryId) - 0.5) * 2 * Z_TIME_JITTER;
+    return THREE.MathUtils.clamp(baseZ + jitter, MIN, MAX);
   }
 
   function setEntries(entries: MatrixEntry[]): void {
     const gen = ++entriesLoadGeneration;
     clearSprites();
     currentEntries = entries.slice(0, maxVisible);
-    const times = currentEntries.map((e) => new Date(e.created_at).getTime());
-    const finite = times.filter((x) => Number.isFinite(x));
-    const tMin = finite.length ? Math.min(...finite) : 0;
-    const tMax = finite.length ? Math.max(...finite) : 1;
 
     void (async () => {
       for (const e of currentEntries) {
@@ -225,7 +237,7 @@ export function createMatrixView3D(
           const sprite = new THREE.Sprite(mat);
           const vx = THREE.MathUtils.clamp(e.valence, MIN, MAX);
           const vy = THREE.MathUtils.clamp(e.activation, MIN, MAX);
-          const vz = zFromCreatedAt(e.created_at, tMin, tMax, e.entry_id);
+          const vz = zFromCreatedAt(e.created_at, e.entry_id);
           sprite.position.set(vx, vy, vz);
           sprite.scale.set(spriteScale, spriteScale, spriteScale);
           sprite.userData.entryId = e.entry_id;

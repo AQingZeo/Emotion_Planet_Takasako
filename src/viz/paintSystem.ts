@@ -168,12 +168,17 @@ export class PaintSystem {
   }
 }
 
-/** Cel-shading ramp shared by all painted meshes (discrete light bands). */
+/**
+ * Toon gradient map: wide smooth ramp + linear sampling so lighting is continuous (Blender “shade smooth” feel).
+ * The old 5-step + NearestFilter looked like flat / hard faceted bands regardless of mesh normals.
+ */
 let sharedToonGradient: THREE.DataTexture | null = null;
+
+const TOON_GRADIENT_WIDTH = 128;
 
 function getSharedToonGradientMap(): THREE.DataTexture {
   if (!sharedToonGradient) {
-    const n = 5;
+    const n = TOON_GRADIENT_WIDTH;
     const data = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
       const v = Math.round((i / Math.max(1, n - 1)) * 255);
@@ -184,8 +189,8 @@ function getSharedToonGradientMap(): THREE.DataTexture {
     }
     const tex = new THREE.DataTexture(data, n, 1);
     tex.needsUpdate = true;
-    tex.minFilter = THREE.NearestFilter;
-    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.colorSpace = THREE.NoColorSpace;
@@ -202,6 +207,7 @@ export function applyPaintTextureToMeshes(meshes: THREE.Mesh[], map: THREE.Textu
       color: 0xffffff,
       map,
       gradientMap,
+      flatShading: false,
       /** Many GLBs have inward-facing normals; single-sided would render invisible. */
       side: THREE.DoubleSide,
     });
@@ -242,10 +248,17 @@ export function applyHeightRampColorToMeshes(meshes: THREE.Mesh[], colorHex: str
     const current = mesh.material;
     if (current instanceof THREE.MeshToonMaterial && current.vertexColors) {
       current.color.copy(base);
+      current.flatShading = false;
       current.needsUpdate = true;
       continue;
     }
-    const mat = new THREE.MeshToonMaterial({ color: base, gradientMap, side: THREE.DoubleSide, vertexColors: true });
+    const mat = new THREE.MeshToonMaterial({
+      color: base,
+      gradientMap,
+      flatShading: false,
+      side: THREE.DoubleSide,
+      vertexColors: true,
+    });
     if (current instanceof THREE.Material) current.dispose();
     mesh.material = mat;
   }

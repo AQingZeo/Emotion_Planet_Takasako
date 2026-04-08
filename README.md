@@ -10,7 +10,7 @@ Public-installation prototype: classify free-text emotion (OpenAI), paint on pre
 ## Setup
 
 1. `npm install`
-2. Create `.env.local` with `VITE_OPENAI_API_KEY=sk-...` (or `OPENAI_API_KEY` — Vite injects it via `vite.config.ts`).
+2. Create `.env.local` with **`OPENAI_API_KEY=sk-...`** (recommended). The server loads `.env` then `.env.local` via `server/envBootstrap.ts` with **override**, so the file wins over an empty shell variable. Aliases: `VITE_OPENAI_API_KEY`, `API_KEY` — see `src/config/openaiKey.ts`. On startup the API logs whether a key was found.
 3. Optional — skip the API while testing paint/matrix: set `VITE_USE_MOCK_CLASSIFY=true` in `.env.local` and **restart** `npm run dev`, **or** open `http://localhost:3000/?mock=1` (no env needed). Edit the fixed result in `src/ai/mockClassification.ts`.
 4. `npm run dev` — http://localhost:3000
 

@@ -8,6 +8,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const loader = new GLTFLoader();
 
+/** Shift spherical seam around equator (0–1). 0.5 = 180° rotation vs default `atan2(nx,nz)` meridian. */
+const SPHERICAL_UV_U_OFFSET = 0.5;
+
 export type GlbUvHint = 'blob' | 'terrain';
 
 export interface LoadedGlb {
@@ -29,7 +32,8 @@ function ensureSphericalUv(geometry: THREE.BufferGeometry): void {
     const nx = x / len;
     const ny = y / len;
     const nz = z / len;
-    const u = Math.atan2(nx, nz) / (Math.PI * 2) + 0.5;
+    let u = Math.atan2(nx, nz) / (Math.PI * 2) + 0.5 + SPHERICAL_UV_U_OFFSET;
+    u -= Math.floor(u);
     const v = Math.asin(Math.max(-1, Math.min(1, ny))) / Math.PI + 0.5;
     uvs[i * 2] = u;
     uvs[i * 2 + 1] = v;
@@ -84,7 +88,12 @@ export async function loadGlb(url: string, uvHint: GlbUvHint = 'blob'): Promise<
       const g = mesh.geometry;
       if (g instanceof THREE.BufferGeometry) {
         applyUvHint(g, uvHint);
-        if (!g.attributes.normal) g.computeVertexNormals();
+        if (!g.attributes.normal) {
+          g.computeVertexNormals();
+        } else if (uvHint === 'blob') {
+          /** Re-average face normals so organic blobs match Blender shade-smooth (exporter can ship flat splits). */
+          g.computeVertexNormals();
+        }
       }
     }
   });

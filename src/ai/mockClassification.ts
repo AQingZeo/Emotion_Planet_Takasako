@@ -2,8 +2,9 @@
  * Skip OpenAI during UI/paint testing.
  *
  * Enable ONE of:
- * - `.env.local`: `VITE_USE_MOCK_CLASSIFY=true` (restart `npm run dev`)
- * - URL: open `http://localhost:3000/?mock=1` (no restart needed)
+ * - **Browser URL:** `?mock=1` — client sends `{ mock: true }` to `POST /api/classify` (no API key).
+ *   Optional: `?mock=1&emotion=emotion_p` to pick an archetype (must match `src/config/emotions.ts`).
+ * - **Server env:** `VITE_USE_MOCK_CLASSIFY=true` in `.env.local` — `classifyEmotion()` on the server returns mock (default emotion_c).
  */
 
 import type { AIClassificationResult } from '../data/types';

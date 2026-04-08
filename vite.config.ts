@@ -22,6 +22,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    /** Strip from Vite client bundle only. The real key is read by Node from `.env.local` (see server/envBootstrap.ts). */
     define: {
       'process.env.API_KEY': JSON.stringify(''),
       'process.env.OPENAI_API_KEY': JSON.stringify(''),

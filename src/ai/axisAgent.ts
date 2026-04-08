@@ -7,6 +7,7 @@
 import { appendResponseLog } from './responseLog';
 import { EMOTION_AXIS_SYSTEM_PROMPT } from './emotionAxisPrompt';
 import { ALLOWED_EMOTION_IDS, EMOTION_ARCHETYPES, getEmotionArchetype } from '../config/emotions';
+import { readOpenAiApiKey } from '../config/openaiKey';
 import type { AIClassificationResult } from '../data/types';
 import { isMockClassifyEnabled, MOCK_CLASSIFICATION } from './mockClassification';
 
@@ -108,16 +109,6 @@ export function parseAgentResponse(jsonText: string): AxisAgentResponse {
   }
 }
 
-declare const process: { env: { OPENAI_API_KEY?: string; API_KEY?: string } } | undefined;
-
-const getApiKey = (): string => {
-  if (typeof process !== 'undefined' && process.env?.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
-  if (typeof process !== 'undefined' && process.env?.API_KEY) return process.env.API_KEY;
-  if (typeof import.meta !== 'undefined' && (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_OPENAI_API_KEY)
-    return (import.meta as unknown as { env: Record<string, string> }).env.VITE_OPENAI_API_KEY;
-  return '';
-};
-
 const OPENAI_MODEL = 'gpt-4o-mini';
 
 export async function classifyEmotion(text: string): Promise<ClassifyResult> {
@@ -139,7 +130,7 @@ export async function classifyEmotion(text: string): Promise<ClassifyResult> {
     return { result, rawJson };
   }
   const noKey: ClassifyResult = { result: fallback, rawJson: '{"reason":"no_api_key"}' };
-  const apiKey = getApiKey();
+  const apiKey = readOpenAiApiKey();
   if (!apiKey) {
     console.warn('No OpenAI API key; returning fallback.');
     logResponse(text, noKey.rawJson, fallback);

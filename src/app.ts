@@ -12,6 +12,7 @@ import { createTerrainPreview3D } from './viz/terrainPreview3D';
 import { captureMatrixSprite } from './viz/pngCapture';
 import { createMatrixView3D } from './viz/matrixView3D';
 import { createDetailPopup } from './viz/detailPopup';
+import { EMOTION_ARCHETYPES, isValidEmotionId } from './config/emotions';
 const SESSION_ID =
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? `session_${crypto.randomUUID()}`
@@ -30,6 +31,9 @@ const LOG_TEMPLATE_EMPTY = [
   'Timestamp:',
   'Confidence:',
 ].join('\n');
+
+/** Matrix shell + input column (left rail). */
+const SHELL_BG = '#FFFBF7';
 
 function formatAiLog(ai: AIClassificationResult, timestampIso: string): string {
   const lines = [
@@ -57,7 +61,7 @@ function runInput(): void {
 
   const left = document.createElement('div');
   left.style.cssText =
-    'flex:0 0 33%;min-width:300px;max-width:460px;display:flex;flex-direction:column;min-height:0;padding:20px 18px;gap:14px;border-right:1px solid #e7e5e4;box-sizing:border-box;';
+    `flex:0 0 33%;min-width:300px;max-width:460px;display:flex;flex-direction:column;min-height:0;padding:20px 18px;gap:14px;border-right:1px solid #e7e5e4;box-sizing:border-box;background:${SHELL_BG};`;
 
   const titleBlock = document.createElement('div');
   titleBlock.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
@@ -248,6 +252,50 @@ function runInput(): void {
   paint.setBrushColor(brushColorInput.value);
   paint.setBaseColor(currentBaseColor);
   terrainPreview.setBaseColor(currentBaseColor);
+
+  try {
+    if (new URLSearchParams(window.location.search).get('dev') === '1') {
+      const devWrap = document.createElement('div');
+      devWrap.style.cssText =
+        'display:flex;flex-direction:column;gap:6px;margin-bottom:10px;font-size:11px;color:#57534e;font-family:var(--font-secondary);';
+      const devLab = document.createElement('span');
+      devLab.textContent = 'Dev: preview GLB (no API)';
+      const devSel = document.createElement('select');
+      devSel.style.cssText =
+        'width:100%;padding:8px 10px;border:1px solid #e7e5e4;border-radius:10px;font-size:12px;font-family:var(--font-display);background:#fff;';
+      for (const e of EMOTION_ARCHETYPES) {
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = `${e.id} · ${e.label}`;
+        devSel.appendChild(opt);
+      }
+      devSel.addEventListener('change', () => {
+        void (async () => {
+          const id = devSel.value;
+          if (!isValidEmotionId(id)) return;
+          statusBanner.textContent = `Dev: loading ${id}…`;
+          try {
+            await paint.loadEmotionArchetype(id);
+            await terrainPreview.loadEmotionArchetype(id);
+            paint.setBaseColor(currentBaseColor);
+            terrainPreview.setBaseColor(currentBaseColor);
+            paint.setBrushColor(brushColorInput.value);
+            requestAnimationFrame(() => paint.resize());
+            statusBanner.textContent = `Dev: ${id} loaded (Analyze still sets AI labels for send).`;
+          } catch (err) {
+            console.error(err);
+            statusBanner.textContent = `Dev load failed: ${id}`;
+          }
+        })();
+      });
+      devWrap.appendChild(devLab);
+      devWrap.appendChild(devSel);
+      left.insertBefore(devWrap, leftActions);
+    }
+  } catch {
+    /* ignore */
+  }
+
   brushSize.addEventListener('input', () => paint.setBrushRadius(Number(brushSize.value)));
   brushColorInput.addEventListener('input', () => {
     paint.setBrushColor(brushColorInput.value);
@@ -277,22 +325,44 @@ function runInput(): void {
     btnSend.style.cursor = on ? 'pointer' : 'not-allowed';
   }
 
+  function classifyQueryOptions(): { mock: boolean; emotionId?: string } {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const mock = q.get('mock') === '1';
+      const emotion = q.get('emotion')?.trim();
+      return { mock, emotionId: emotion && emotion.length > 0 ? emotion : undefined };
+    } catch {
+      return { mock: false };
+    }
+  }
+
   async function onClassify(): Promise<void> {
     const text = input.value.trim();
-    if (!text) return;
+    const { mock, emotionId } = classifyQueryOptions();
+    if (!text && !mock) return;
     submitBtn.disabled = true;
     resultBox.textContent = LOG_TEMPLATE_EMPTY;
-    statusBanner.textContent = 'Classifying…';
+    statusBanner.textContent = mock ? 'Loading archetype (mock)…' : 'Classifying…';
     try {
-      const { result } = await fetchClassify(text);
+      const { result } = await fetchClassify(text || '(mock)', { mock, emotionId });
       currentAi = {
         ...result,
         valence: roundTo2(result.valence),
         activation: roundTo2(result.activation),
       };
       loadedEmotionId = currentAi.emotion_id;
-      await paint.loadEmotionArchetype(loadedEmotionId);
-      await terrainPreview.loadEmotionArchetype(loadedEmotionId);
+      try {
+        await paint.loadEmotionArchetype(loadedEmotionId);
+        await terrainPreview.loadEmotionArchetype(loadedEmotionId);
+      } catch (loadErr) {
+        console.error(loadErr);
+        const msg =
+          loadErr instanceof Error ? loadErr.message : String(loadErr);
+        statusBanner.textContent = `Model load failed for ${loadedEmotionId}. Check public/assets/emotions/… blob.glb & terrain.glb exist. ${msg}`;
+        resultBox.textContent = formatAiLog(currentAi, new Date().toISOString());
+        setSendEnabled(false);
+        return;
+      }
       paint.setBaseColor(currentBaseColor);
       terrainPreview.setBaseColor(currentBaseColor);
       paint.setBrushColor(brushColorInput.value);
@@ -303,7 +373,9 @@ function runInput(): void {
       const classifiedAt = new Date().toISOString();
       resultBox.textContent = formatAiLog(currentAi, classifiedAt);
       setSendEnabled(true);
-      statusBanner.textContent = 'Paint, then confirm.';
+      statusBanner.textContent = mock
+        ? `Mock: ${loadedEmotionId}. Paint, then confirm.`
+        : 'Paint, then confirm.';
     } catch (e) {
       console.error(e);
       statusBanner.textContent = 'Error (is the local server running?)';
@@ -396,7 +468,7 @@ function runMatrix(): void {
 
   const wrap = document.createElement('div');
   wrap.style.cssText =
-    'position:fixed;inset:0;display:flex;flex-direction:column;background:#fafaf9;font-family:var(--font-display);';
+    `position:fixed;inset:0;display:flex;flex-direction:column;background:${SHELL_BG};font-family:var(--font-display);`;
   root.appendChild(wrap);
 
   const canvasHost = document.createElement('div');

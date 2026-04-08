@@ -1,5 +1,11 @@
 /**
  * SQLite persistence: one row per submission, image payloads as BLOB + mime.
+ *
+ * This file (`data/emotion-planet.db` under the repo root) is the **matrix data store**:
+ * - `GET /api/submissions` → `listSubmissions()` (what `/matrix` loads after Vite proxies to Express)
+ * - `POST /api/submissions` → `insertSubmission()` (after Send on the input screen)
+ *
+ * Separate from `src/ai/responseLog.ts` (browser localStorage debug log for raw AI JSON; not this DB).
  */
 
 import fs from 'node:fs';
@@ -9,6 +15,7 @@ import Database from 'better-sqlite3';
 import type { AIClassificationResult, MatrixEntry, SubmissionRecord } from '../src/data/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/** Absolute path to the SQLite file (typically `<repo>/data/emotion-planet.db`). */
 export const DB_PATH = path.resolve(__dirname, '..', 'data', 'emotion-planet.db');
 
 let db: Database.Database | null = null;

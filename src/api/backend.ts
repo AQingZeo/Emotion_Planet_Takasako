@@ -5,11 +5,24 @@
 import type { ClassifyResult } from '../ai/axisAgent';
 import type { SubmissionRecord } from '../data/types';
 
-export async function fetchClassify(text: string): Promise<ClassifyResult> {
+export interface FetchClassifyOptions {
+  /** Skip OpenAI; server returns a fixed classification (for UI / asset testing). */
+  mock?: boolean;
+  /** When mock: must be a valid archetype id, e.g. emotion_p (defaults to emotion_c on server). */
+  emotionId?: string;
+}
+
+export async function fetchClassify(
+  text: string,
+  options?: FetchClassifyOptions
+): Promise<ClassifyResult> {
+  const body: Record<string, unknown> = { text };
+  if (options?.mock) body.mock = true;
+  if (options?.emotionId?.trim()) body.emotion_id = options.emotionId.trim();
   const r = await fetch('/api/classify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) {
     throw new Error((await r.text()) || `classify failed: ${r.status}`);
@@ -17,6 +30,7 @@ export async function fetchClassify(text: string): Promise<ClassifyResult> {
   return r.json() as Promise<ClassifyResult>;
 }
 
+/** Matrix + detail popup: full list from server SQLite (`data/emotion-planet.db`). */
 export async function fetchSubmissions(): Promise<SubmissionRecord[]> {
   const r = await fetch('/api/submissions');
   if (!r.ok) throw new Error(`GET submissions failed: ${r.status}`);

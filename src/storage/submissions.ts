@@ -1,5 +1,8 @@
 /**
- * Submissions via local Express API + SQLite (see server/).
+ * Submissions via local Express API + SQLite (see `server/db.ts`).
+ *
+ * The `/matrix` view calls `getActiveEntries()` → `GET /api/submissions` → `listSubmissions()` reading
+ * `data/emotion-planet.db` on the machine running the API (not a separate “project log” file).
  */
 
 import type { MatrixEntry, SubmissionRecord } from '../data/types';
